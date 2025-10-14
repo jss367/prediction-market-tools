@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Manifold Probability Sum</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 760px;
+        margin: 40px auto;
+        padding: 0 16px 48px;
+        line-height: 1.5;
+      }
+      h1, h2, h3 {
+        line-height: 1.2;
+      }
+      input, button {
+        font-size: 16px;
+        padding: 10px;
+      }
+      input[type="text"], input[type="number"] {
+        width: 100%;
+        box-sizing: border-box;
+      }
+      button {
+        margin-top: 10px;
+        cursor: pointer;
+      }
+      .muted {
+        color: #666;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .row > * {
+        flex: 1 1 240px;
+      }
+      pre {
+        background: #f6f8fa;
+        border-radius: 8px;
+        padding: 12px;
+        overflow: auto;
+      }
+      ul {
+        padding-left: 20px;
+      }
+      .status {
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin: 16px 0;
+      }
+      .status.ok {
+        background: rgba(46, 204, 113, 0.15);
+        border: 1px solid rgba(46, 204, 113, 0.4);
+      }
+      .status.warn {
+        background: rgba(241, 196, 15, 0.15);
+        border: 1px solid rgba(241, 196, 15, 0.4);
+      }
+      .status.error {
+        background: rgba(231, 76, 60, 0.15);
+        border: 1px solid rgba(231, 76, 60, 0.4);
+      }
+      .answers-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+      .answer-card {
+        border: 1px solid rgba(0,0,0,0.08);
+        border-radius: 8px;
+        padding: 12px;
+        background: rgba(255,255,255,0.6);
+      }
+      .answer-card h3 {
+        font-size: 16px;
+        margin: 0 0 6px;
+      }
+      .answer-card p {
+        margin: 0;
+      }
+      .loading {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .spinner {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        border: 3px solid rgba(0,0,0,0.1);
+        border-top-color: rgba(0,0,0,0.5);
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Manifold Probability Sum</h1>
+    <p>
+      Paste a Manifold market URL below. For multiple-choice markets, this page fetches the
+      latest answer probabilities from the public API and shows their sum.
+    </p>
+
+    <div class="row" style="margin-bottom: 12px;">
+      <label>
+        <span class="muted">Market URL</span>
+        <input id="url" type="text" placeholder="https://manifold.markets/USERNAME/MARKET-SLUG" />
+      </label>
+      <label>
+        <span class="muted">Expected sum (optional)</span>
+        <input id="expected" type="number" step="any" placeholder="e.g. 1, 16" />
+      </label>
+    </div>
+    <button id="go">Compute</button>
+
+    <div id="out"></div>
+
+    <template id="answer-template">
+      <div class="answer-card">
+        <h3></h3>
+        <p></p>
+      </div>
+    </template>
+
+    <script>
+      const api = "https://api.manifold.markets/v0";
+
+      function parseSlugFromUrl(u) {
+        if (!u) return null;
+        try {
+          const url = new URL(u.trim());
+          const parts = url.pathname.split("/").filter(Boolean);
+          return parts[parts.length - 1] || null;
+        } catch (err) {
+          return null;
+        }
+      }
+
+      function fmtPct(x) {
+        return (x * 100).toFixed(2) + "%";
+      }
+
+      async function fetchJson(u) {
+        const r = await fetch(u, { headers: { "accept": "application/json" } });
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status} fetching ${u}`);
+        }
+        return r.json();
+      }
+
+      function renderStatus(out, message, type = "warn", { replace = false } = {}) {
+        if (replace) {
+          out.innerHTML = "";
+        }
+        const div = document.createElement("div");
+        div.className = `status ${type}`;
+        div.innerHTML = message;
+        out.appendChild(div);
+        return div;
+      }
+
+      function renderLoading(out) {
+        out.innerHTML = `<p class="loading"><span class="spinner" aria-hidden="true"></span>Loading…</p>`;
+      }
+
+      function renderAnswerList(out, market, probs, sum) {
+        const answers = Array.isArray(market.answers) ? market.answers : [];
+        const idToAnswer = Object.fromEntries(answers.map((a) => [a.id, a]));
+        const container = document.createElement("div");
+        container.className = "answers-grid";
+        const template = document.getElementById("answer-template");
+
+        for (const [id, prob] of Object.entries(probs.answerProbs).sort((a, b) => b[1] - a[1])) {
+          const clone = template.content.firstElementChild.cloneNode(true);
+          const answer = idToAnswer[id];
+          clone.querySelector("h3").textContent = answer?.text || answer?.name || answer?.id || id;
+          clone.querySelector("p").innerHTML = `<strong>${fmtPct(prob)}</strong>`;
+          container.appendChild(clone);
+        }
+
+        const summary = document.createElement("div");
+        summary.innerHTML = `
+          <p><strong>Sum of probabilities:</strong> ${sum.toFixed(4)} (${fmtPct(sum)})</p>
+        `;
+
+        out.appendChild(summary);
+        out.appendChild(container);
+      }
+
+      async function run() {
+        const out = document.getElementById("out");
+        out.textContent = "";
+        const input = document.getElementById("url").value;
+        const expectedRaw = document.getElementById("expected").value;
+        const expected = expectedRaw ? Number(expectedRaw) : null;
+        const slug = parseSlugFromUrl(input);
+        if (!slug) {
+          renderStatus(out, "Could not parse a market slug from that URL.", "error", { replace: true });
+          return;
+        }
+
+        renderLoading(out);
+
+        try {
+          const market = await fetchJson(`${api}/slug/${encodeURIComponent(slug)}`);
+          const probs = await fetchJson(`${api}/market/${market.id}/prob`);
+
+          out.innerHTML = `
+            <h2>${market.question || "Market"}</h2>
+            <p class="muted">Type: ${market.outcomeType || market.contractType || "unknown"} · ID: ${market.id}</p>
+          `;
+
+          if ("answerProbs" in probs) {
+            const values = Object.values(probs.answerProbs);
+            const sum = values.reduce((a, b) => a + b, 0);
+            renderAnswerList(out, market, probs, sum);
+
+            if (typeof expected === "number" && !Number.isNaN(expected)) {
+              const diff = sum - expected;
+              const pctDiff = expected !== 0 ? (diff / expected) * 100 : null;
+              const diffText = pctDiff != null ? `${diff.toFixed(4)} (${pctDiff.toFixed(2)}%)` : diff.toFixed(4);
+              renderStatus(
+                out,
+                Math.abs(diff) < 1e-6
+                  ? "Sum matches expected value."
+                  : `Difference from expected sum (${expected}): <strong>${diffText}</strong>`,
+                Math.abs(diff) < 1e-6 ? "ok" : "warn"
+              );
+            }
+          } else if ("prob" in probs) {
+            const yes = probs.prob;
+            const no = 1 - yes;
+            const binarySum = yes + no;
+            renderStatus(
+              out,
+              `Binary market detected. YES ≈ <strong>${fmtPct(yes)}</strong>, NO ≈ <strong>${fmtPct(no)}</strong>. The probabilities sum to ${binarySum.toFixed(4)}.`,
+              "ok"
+            );
+            if (typeof expected === "number" && !Number.isNaN(expected)) {
+              const diff = binarySum - expected;
+              const pctDiff = expected !== 0 ? (diff / expected) * 100 : null;
+              const diffText = pctDiff != null ? `${diff.toFixed(4)} (${pctDiff.toFixed(2)}%)` : diff.toFixed(4);
+              renderStatus(
+                out,
+                Math.abs(diff) < 1e-6
+                  ? "Sum matches expected value."
+                  : `Difference from expected sum (${expected}): <strong>${diffText}</strong>`,
+                Math.abs(diff) < 1e-6 ? "ok" : "warn"
+              );
+            }
+          } else {
+            renderStatus(
+              out,
+              "This market type does not expose per-answer probabilities (numeric or pseudo-numeric). Sum not applicable.",
+              "warn"
+            );
+          }
+        } catch (err) {
+          renderStatus(out, `Failed: ${err.message}`, "error", { replace: true });
+        }
+      }
+
+      document.getElementById("go").addEventListener("click", run);
+      document.getElementById("url").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          run();
+        }
+      });
+    </script>
+  </body>
+</html>
