@@ -2,6 +2,10 @@
 
 This repository hosts a single-page web app that fetches the current probabilities for a Manifold Markets question and displays the sum. It is designed to be deployed as a static site (e.g., GitHub Pages).
 
+## Site
+
+[https://jss367.github.io/prediction-market-tools/](https://jss367.github.io/prediction-market-tools/)
+
 ## Usage
 
 1. Paste the full URL of a Manifold market into the "Market URL" field.
